@@ -249,7 +249,7 @@ func convertAttribute(attribute *pkcs12Attribute) (key, value string, err error)
 // Decode extracts a certificate and private key from pfxData, which must be a DER-encoded PKCS#12 file. This function
 // assumes that there is only one certificate and only one private key in the
 // pfxData.  Since PKCS#12 files often contain more than one certificate, you
-// probably want to use [DecodeChain] instead.
+// probably want to use [DecodeChain] or [DecodeAll] instead.
 func Decode(pfxData []byte, password string) (privateKey interface{}, certificate *x509.Certificate, err error) {
 	var caCerts []*x509.Certificate
 	privateKey, certificate, caCerts, err = DecodeChain(pfxData, password)
@@ -313,6 +313,47 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 	}
 	if privateKey == nil {
 		return nil, nil, nil, errors.New("pkcs12: private key missing")
+	}
+
+	return
+}
+
+// DecodeAll extracts all certificates and private keys from pfxData. This behaves the same as [Decode], but can be used with
+// PKCS#12 files containing multiple (unrelated) certificates.
+func DecodeAll(pfxData []byte, password string) (privateKeys []interface{}, certificates []*x509.Certificate, err error) {
+	encodedPassword, err := bmpStringZeroTerminated(password)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	bags, encodedPassword, err := getSafeContents(pfxData, encodedPassword, 2)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, bag := range bags {
+		switch {
+		case bag.Id.Equal(oidCertBag):
+			certsData, err := decodeCertBag(bag.Value.Bytes)
+			if err != nil {
+				return nil, nil, err
+			}
+			certs, err := x509.ParseCertificates(certsData)
+			if err != nil {
+				return nil, nil, err
+			}
+			if len(certs) != 1 {
+				err = errors.New("pkcs12: expected exactly one certificate in the certBag")
+				return nil, nil, err
+			}
+			certificates = append(certificates, certs[0])
+
+		case bag.Id.Equal(oidPKCS8ShroundedKeyBag):
+			privateKey, err := decodePkcs8ShroudedKeyBag(bag.Value.Bytes, encodedPassword)
+			if err != nil {
+				return nil, nil, err
+			}
+			privateKeys = append(privateKeys, privateKey)
+		}
 	}
 
 	return

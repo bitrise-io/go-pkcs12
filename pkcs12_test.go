@@ -11,6 +11,8 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"io/ioutil"
+	"path/filepath"
 	"testing"
 )
 
@@ -114,6 +116,22 @@ func TestPBES2(t *testing.T) {
 	}
 	if len(caCerts) != 0 {
 		t.Errorf("unexpected # of caCerts: got %d, want 0", len(caCerts))
+	}
+}
+
+func TestDecodeAll(t *testing.T) {
+	testFile := filepath.Join("testdata", "two_certs.p12")
+	testPassword := "testing"
+	b, err := ioutil.ReadFile(testFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateKeys, certs, err := DecodeAll(b, testPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if (len(privateKeys) != len(certs)) {
+		t.Errorf("unexpected # of private keys and certs: keys: %d, certs: %d", len(privateKeys), len(certs))
 	}
 }
 
