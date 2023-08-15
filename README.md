@@ -1,5 +1,9 @@
 # package pkcs12
 
+## Fork info
+
+This is a fork of https://github.com/SSLMate/go-pkcs12 that adds support for https://github.com/bitrise-io/go-pkcs12/pull/1
+
 [![Documentation](https://pkg.go.dev/badge/software.sslmate.com/src/go-pkcs12)](https://pkg.go.dev/software.sslmate.com/src/go-pkcs12)
 
     import "software.sslmate.com/src/go-pkcs12" 
