@@ -29,6 +29,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // DefaultPassword is the string "changeit", a commonly-used password for
@@ -397,6 +398,89 @@ func DecodeTrustStore(pfxData []byte, password string) (certs []*x509.Certificat
 
 		default:
 			return nil, errors.New("pkcs12: expected only certificate bags")
+		}
+	}
+
+	return
+}
+
+func DecodeKeystore(pfxData []byte, password, privateKeyalias, privateKeyPassword string) (privateKey interface{}, certificate *x509.Certificate, err error) {
+	encodedPassword, err := bmpStringZeroTerminated(password)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	encodedPrivateKeyPassword, err := bmpStringZeroTerminated(privateKeyPassword)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	bags, encodedPassword, err := getSafeContents(pfxData, encodedPassword, 2)
+	if err != nil {
+		return nil, nil, err
+	}
+	expectedNumberOfBags := 2
+	if len(bags) != expectedNumberOfBags {
+		return nil, nil, fmt.Errorf("unexpected number of bags (%d), expected: %d", len(bags), expectedNumberOfBags)
+	}
+
+	var currentAlias string
+	for _, bag := range bags {
+		switch {
+		case bag.Id.Equal(oidCertBag):
+			currentAlias = ""
+
+			if len(bag.Attributes) > 0 {
+				currentAlias, err = decodeBMPString(bag.Attributes[0].Value.Bytes)
+				if err != nil {
+					return nil, nil, err
+				}
+				currentAlias = strings.TrimPrefix(currentAlias, "Ḉ")
+			}
+			if len(currentAlias) == 0 {
+				return nil, nil, fmt.Errorf("no alias found for the certificate")
+			}
+
+			if string(currentAlias) != privateKeyalias {
+				return nil, nil, fmt.Errorf("multiple aliases found: %s, %s", privateKeyalias, string(currentAlias))
+			}
+
+			certsData, err := decodeCertBag(bag.Value.Bytes)
+			if err != nil {
+				return nil, nil, err
+			}
+			certs, err := x509.ParseCertificates(certsData)
+			if err != nil {
+				return nil, nil, err
+			}
+			if len(certs) != 1 {
+				err = errors.New("pkcs12: expected exactly one certificate in the certBag")
+				return nil, nil, err
+			}
+			certificate = certs[0]
+
+		case bag.Id.Equal(oidPKCS8ShroundedKeyBag):
+			currentAlias = ""
+			if len(bag.Attributes) > 0 {
+				currentAlias, err = decodeBMPString(bag.Attributes[0].Value.Bytes)
+				if err != nil {
+					return nil, nil, err
+				}
+				currentAlias = strings.TrimPrefix(currentAlias, "Ḉ")
+			}
+			if len(currentAlias) == 0 {
+				return nil, nil, fmt.Errorf("no alias found for the certificate")
+			}
+
+			if string(currentAlias) != privateKeyalias {
+				return nil, nil, fmt.Errorf("multiple aliases found: %s, %s", privateKeyalias, string(currentAlias))
+			}
+
+			key, err := decodePkcs8ShroudedKeyBag(bag.Value.Bytes, encodedPrivateKeyPassword)
+			if err != nil {
+				return nil, nil, err
+			}
+			privateKey = key
 		}
 	}
 
