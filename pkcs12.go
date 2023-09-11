@@ -29,7 +29,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 )
 
 // DefaultPassword is the string "changeit", a commonly-used password for
@@ -404,13 +403,13 @@ func DecodeTrustStore(pfxData []byte, password string) (certs []*x509.Certificat
 	return
 }
 
-func DecodeKeystore(pfxData []byte, password, privateKeyalias, privateKeyPassword string) (privateKey interface{}, certificate *x509.Certificate, err error) {
-	encodedPassword, err := bmpStringZeroTerminated(password)
+func DecodeKeystore(pfxData []byte, storepass, alias, keypass string) (privateKey interface{}, certificate *x509.Certificate, err error) {
+	encodedPassword, err := bmpStringZeroTerminated(storepass)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	encodedPrivateKeyPassword, err := bmpStringZeroTerminated(privateKeyPassword)
+	encodedPrivateKeyPassword, err := bmpStringZeroTerminated(keypass)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -431,18 +430,17 @@ func DecodeKeystore(pfxData []byte, password, privateKeyalias, privateKeyPasswor
 			currentAlias = ""
 
 			if len(bag.Attributes) > 0 {
-				currentAlias, err = decodeBMPString(bag.Attributes[0].Value.Bytes)
+				currentAlias, err = convertAlias(&bag.Attributes[0])
 				if err != nil {
 					return nil, nil, err
 				}
-				currentAlias = strings.TrimPrefix(currentAlias, "Ḉ")
 			}
 			if len(currentAlias) == 0 {
 				return nil, nil, fmt.Errorf("no alias found for the certificate")
 			}
 
-			if string(currentAlias) != privateKeyalias {
-				return nil, nil, fmt.Errorf("multiple aliases found: %s, %s", privateKeyalias, string(currentAlias))
+			if currentAlias != alias {
+				return nil, nil, fmt.Errorf("multiple aliases found: %s, %s", alias, string(currentAlias))
 			}
 
 			certsData, err := decodeCertBag(bag.Value.Bytes)
@@ -462,18 +460,17 @@ func DecodeKeystore(pfxData []byte, password, privateKeyalias, privateKeyPasswor
 		case bag.Id.Equal(oidPKCS8ShroundedKeyBag):
 			currentAlias = ""
 			if len(bag.Attributes) > 0 {
-				currentAlias, err = decodeBMPString(bag.Attributes[0].Value.Bytes)
+				currentAlias, err = convertAlias(&bag.Attributes[0])
 				if err != nil {
 					return nil, nil, err
 				}
-				currentAlias = strings.TrimPrefix(currentAlias, "Ḉ")
 			}
 			if len(currentAlias) == 0 {
 				return nil, nil, fmt.Errorf("no alias found for the certificate")
 			}
 
-			if string(currentAlias) != privateKeyalias {
-				return nil, nil, fmt.Errorf("multiple aliases found: %s, %s", privateKeyalias, string(currentAlias))
+			if currentAlias != alias {
+				return nil, nil, fmt.Errorf("multiple aliases found: %s, %s", alias, string(currentAlias))
 			}
 
 			key, err := decodePkcs8ShroudedKeyBag(bag.Value.Bytes, encodedPrivateKeyPassword)
@@ -485,6 +482,13 @@ func DecodeKeystore(pfxData []byte, password, privateKeyalias, privateKeyPasswor
 	}
 
 	return
+}
+
+func convertAlias(attribute *pkcs12Attribute) (string, error) {
+	if err := unmarshal(attribute.Value.Bytes, &attribute.Value); err != nil {
+		return "", err
+	}
+	return decodeBMPString(attribute.Value.Bytes)
 }
 
 func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBag, updatedPassword []byte, err error) {
