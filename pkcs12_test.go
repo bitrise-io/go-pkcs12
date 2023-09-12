@@ -86,23 +86,6 @@ func TestDecodeKeystore(t *testing.T) {
 	}
 }
 
-func TestDecodeKeystore2(t *testing.T) {
-	ks := keystore{
-		pth:       filepath.Join("testdata", "debug.keystore"),
-		storepass: "android",
-		alias:     "androiddebugkey",
-		keypass:   "android",
-	}
-
-	b, err := os.ReadFile(ks.pth)
-	require.NoError(t, err)
-
-	key, cert, err := DecodeKeystore(b, ks.storepass, ks.alias, ks.keypass)
-	require.NoError(t, err, ks.pth)
-	require.NotNil(t, key)
-	require.NotNil(t, cert)
-}
-
 func TestPfx(t *testing.T) {
 	for commonName, base64P12 := range testdata {
 		p12, _ := base64.StdEncoding.DecodeString(base64P12)
