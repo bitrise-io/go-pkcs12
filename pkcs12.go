@@ -403,9 +403,9 @@ func DecodeTrustStore(pfxData []byte, password string) (certs []*x509.Certificat
 	return
 }
 
-var InvalidAliasError = errors.New("pkcs12: invalid key alias")
-var InvalidKeystorePasswordError = errors.New("pkcs12: invalid keystore password")
-var InvalidKeyPasswordError = errors.New("pkcs12: invalid key password")
+var IncorrectAliasError = errors.New("pkcs12: incorrect key alias")
+var IncorrectKeystorePasswordError = errors.New("pkcs12: incorrect keystore password")
+var IncorrectKeyPasswordError = errors.New("pkcs12: incorrect key password")
 
 func DecodeKeystore(pfxData []byte, storepass, alias, keypass string) (privateKey interface{}, certificate *x509.Certificate, err error) {
 	encodedPassword, err := bmpStringZeroTerminated(storepass)
@@ -421,7 +421,7 @@ func DecodeKeystore(pfxData []byte, storepass, alias, keypass string) (privateKe
 	bags, encodedPassword, err := getSafeContents(pfxData, encodedPassword, 2)
 	if err != nil {
 		if err == ErrIncorrectPassword {
-			return nil, nil, InvalidKeystorePasswordError
+			return nil, nil, IncorrectKeystorePasswordError
 		}
 		return nil, nil, err
 	}
@@ -473,7 +473,7 @@ func DecodeKeystore(pfxData []byte, storepass, alias, keypass string) (privateKe
 			key, err := decodePkcs8ShroudedKeyBag(bag.Value.Bytes, encodedPrivateKeyPassword)
 			if err != nil {
 				if err.Error() == "pkcs12: error decrypting PKCS#8 shrouded key bag: pkcs12: decryption error, incorrect padding" {
-					return nil, nil, InvalidKeyPasswordError
+					return nil, nil, IncorrectKeyPasswordError
 				}
 				return nil, nil, err
 			}
@@ -492,7 +492,7 @@ func DecodeKeystore(pfxData []byte, storepass, alias, keypass string) (privateKe
 		return nil, nil, errors.New("pkcs12: expected same alias for the certificate and private key")
 	}
 	if certAlias != alias {
-		return nil, nil, InvalidAliasError
+		return nil, nil, IncorrectAliasError
 	}
 
 	return

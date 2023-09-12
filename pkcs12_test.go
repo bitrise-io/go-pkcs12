@@ -48,7 +48,7 @@ func TestDecodeKeystore(t *testing.T) {
 			storepass: "wrongpassword",
 			alias:     "key0",
 			keypass:   "keypass",
-			error:     InvalidKeystorePasswordError.Error(),
+			error:     IncorrectKeystorePasswordError.Error(),
 		},
 		{
 			name:      "Wrong key password",
@@ -56,7 +56,7 @@ func TestDecodeKeystore(t *testing.T) {
 			storepass: "storepass",
 			alias:     "key0",
 			keypass:   "wrongpassword",
-			error:     InvalidKeyPasswordError.Error(),
+			error:     IncorrectKeyPasswordError.Error(),
 		},
 		{
 			name:      "Wrong alias",
@@ -64,7 +64,7 @@ func TestDecodeKeystore(t *testing.T) {
 			storepass: "storepass",
 			alias:     "wrongalias",
 			keypass:   "keypass",
-			error:     InvalidAliasError.Error(),
+			error:     IncorrectAliasError.Error(),
 		},
 	}
 	for _, tt := range tests {
