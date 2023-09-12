@@ -11,10 +11,8 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
-	"fmt"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -28,6 +26,7 @@ func TestDecodeKeystore(t *testing.T) {
 		storepass string
 		alias     string
 		keypass   string
+		error     string
 	}{
 		{
 			name:      "Android debug keystore",
@@ -43,6 +42,30 @@ func TestDecodeKeystore(t *testing.T) {
 			alias:     "key0",
 			keypass:   "keypass",
 		},
+		{
+			name:      "Wrong keystore password",
+			pth:       filepath.Join("testdata", "example.jks"),
+			storepass: "wrongpassword",
+			alias:     "key0",
+			keypass:   "keypass",
+			error:     InvalidKeystorePasswordError.Error(),
+		},
+		{
+			name:      "Wrong key password",
+			pth:       filepath.Join("testdata", "example.jks"),
+			storepass: "storepass",
+			alias:     "key0",
+			keypass:   "wrongpassword",
+			error:     InvalidKeyPasswordError.Error(),
+		},
+		{
+			name:      "Wrong alias",
+			pth:       filepath.Join("testdata", "example.jks"),
+			storepass: "storepass",
+			alias:     "wrongalias",
+			keypass:   "keypass",
+			error:     InvalidAliasError.Error(),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -50,9 +73,15 @@ func TestDecodeKeystore(t *testing.T) {
 			require.NoError(t, err)
 
 			gotPrivateKey, gotCertificate, err := DecodeKeystore(b, tt.storepass, tt.alias, tt.keypass)
-			require.NoError(t, err)
-			require.NotNil(t, gotPrivateKey)
-			require.NotNil(t, gotCertificate)
+			if tt.error != "" {
+				require.EqualError(t, err, tt.error)
+				require.Nil(t, gotPrivateKey)
+				require.Nil(t, gotCertificate)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, gotPrivateKey)
+				require.NotNil(t, gotCertificate)
+			}
 		})
 	}
 }
@@ -249,36 +278,4 @@ type keystore struct {
 	storepass string
 	alias     string
 	keypass   string
-}
-
-func generateDebugKeystore(t *testing.T) keystore {
-	tmpDir, err := os.MkdirTemp("", "keystore")
-	require.NoError(t, err)
-
-	ks := keystore{
-		pth:       filepath.Join(tmpDir, "debug.keystore"),
-		storepass: "android-storepass",
-		alias:     "androiddebugkey",
-		keypass:   "android-keypass",
-	}
-
-	name := "keytool"
-	args := []string{
-		"-genkey",
-		"-v",
-		"-keystore", ks.pth,
-		"-storepass", ks.storepass,
-		"-alias", ks.alias,
-		"-keypass", ks.keypass,
-		"-keyalg", "RSA",
-		"-keysize", "2048",
-		"-validity", "10000",
-		"-dname", "CN=Android Debug,O=Android,C=US",
-	}
-	cmd := exec.Command(name, args...)
-	out, err := cmd.CombinedOutput()
-	fmt.Println(out)
-	require.NoError(t, err, string(out))
-
-	return ks
 }
