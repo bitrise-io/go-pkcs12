@@ -12,9 +12,79 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
+
+func TestDecodeKeystore(t *testing.T) {
+	tests := []struct {
+		name      string
+		pth       string
+		storepass string
+		alias     string
+		keypass   string
+		error     string
+	}{
+		{
+			name:      "Android debug keystore",
+			pth:       filepath.Join("testdata", "debug.keystore"),
+			storepass: "android",
+			alias:     "androiddebugkey",
+			keypass:   "android",
+		},
+		{
+			name:      "Android Studio example keystore",
+			pth:       filepath.Join("testdata", "example.jks"),
+			storepass: "storepass",
+			alias:     "key0",
+			keypass:   "keypass",
+		},
+		{
+			name:      "Wrong keystore password",
+			pth:       filepath.Join("testdata", "example.jks"),
+			storepass: "wrongpassword",
+			alias:     "key0",
+			keypass:   "keypass",
+			error:     IncorrectKeystorePasswordError.Error(),
+		},
+		{
+			name:      "Wrong key password",
+			pth:       filepath.Join("testdata", "example.jks"),
+			storepass: "storepass",
+			alias:     "key0",
+			keypass:   "wrongpassword",
+			error:     IncorrectKeyPasswordError.Error(),
+		},
+		{
+			name:      "Wrong alias",
+			pth:       filepath.Join("testdata", "example.jks"),
+			storepass: "storepass",
+			alias:     "wrongalias",
+			keypass:   "keypass",
+			error:     IncorrectAliasError.Error(),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b, err := os.ReadFile(tt.pth)
+			require.NoError(t, err)
+
+			gotPrivateKey, gotCertificate, err := DecodeKeystore(b, tt.storepass, tt.alias, tt.keypass)
+			if tt.error != "" {
+				require.EqualError(t, err, tt.error)
+				require.Nil(t, gotPrivateKey)
+				require.Nil(t, gotCertificate)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, gotPrivateKey)
+				require.NotNil(t, gotCertificate)
+			}
+		})
+	}
+}
 
 func TestPfx(t *testing.T) {
 	for commonName, base64P12 := range testdata {
@@ -130,7 +200,7 @@ func TestDecodeAll(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if (len(privateKeys) != len(certs)) {
+	if len(privateKeys) != len(certs) {
 		t.Errorf("unexpected # of private keys and certs: keys: %d, certs: %d", len(privateKeys), len(certs))
 	}
 }
