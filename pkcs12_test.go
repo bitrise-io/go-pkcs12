@@ -255,10 +255,3 @@ p8SsTugkit8wOwYJKoZIhvcNAQkUMS4eLABGAHIAaQBlAG4AZABsAHkAIABuAGEAbQBlACAAZgBv
 AHIAIABjAGUAcgB0MDEwITAJBgUrDgMCGgUABBRFsNz3Zd1O1GI8GTuFwCWuDOjEEwQIuBEfIcAy
 HQ8CAggA`,
 }
-
-type keystore struct {
-	pth       string
-	storepass string
-	alias     string
-	keypass   string
-}
