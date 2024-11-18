@@ -43,6 +43,20 @@ func TestDecodeKeystore(t *testing.T) {
 			keypass:   "keypass",
 		},
 		{
+			name:      "Keystore with multiple keys - key0",
+			pth:       filepath.Join("testdata", "multi_keys.pkcs12"),
+			storepass: "storepass",
+			alias:     "key0",
+			keypass:   "keypass0",
+		},
+		{
+			name:      "Keystore with multiple keys - key1",
+			pth:       filepath.Join("testdata", "multi_keys.pkcs12"),
+			storepass: "storepass",
+			alias:     "key1",
+			keypass:   "keypass1",
+		},
+		{
 			name:      "Wrong keystore password",
 			pth:       filepath.Join("testdata", "example.jks"),
 			storepass: "wrongpassword",
