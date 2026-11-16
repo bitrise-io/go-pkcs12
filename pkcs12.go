@@ -587,7 +587,7 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 			if encryptedData.Version != 0 {
 				return nil, nil, NotImplementedError("only version 0 of EncryptedData is supported")
 			}
-			if err := budget.spend(iterationsFor(encryptedData.EncryptedContentInfo.Algorithm())); err != nil {
+			if err := budget.spendFor(encryptedData.EncryptedContentInfo.Algorithm()); err != nil {
 				return nil, nil, err
 			}
 			if data, err = pbDecrypt(encryptedData.EncryptedContentInfo, password); err != nil {

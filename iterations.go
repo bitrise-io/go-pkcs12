@@ -23,14 +23,25 @@ func newIterationBudget() *iterationBudget {
 	return &iterationBudget{remaining: maxIterations}
 }
 
+// spend charges for one key derivation. Deriving a key hashes at least once even when the file
+// gives a count of zero or less, so every derivation costs at least one iteration.
 func (b *iterationBudget) spend(iterations int) error {
+	if iterations < 1 {
+		iterations = 1
+	}
 	if iterations > b.remaining {
 		return ErrTooManyIterations
 	}
-	if iterations > 0 {
-		b.remaining -= iterations
-	}
+	b.remaining -= iterations
 	return nil
+}
+
+func (b *iterationBudget) spendFor(algorithm pkix.AlgorithmIdentifier) error {
+	iterations, derivesKey := iterationsFor(algorithm)
+	if !derivesKey {
+		return nil
+	}
+	return b.spend(iterations)
 }
 
 // spendForKeyBags charges for every shrouded key bag up front, including the ones a caller ends
@@ -45,38 +56,38 @@ func (b *iterationBudget) spendForKeyBags(bags []safeBag) error {
 		if err := unmarshal(bag.Value.Bytes, &keyInfo); err != nil {
 			continue
 		}
-		if err := b.spend(iterationsFor(keyInfo.AlgorithmIdentifier)); err != nil {
+		if err := b.spendFor(keyInfo.AlgorithmIdentifier); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// iterationsFor returns the iteration count a password-based encryption algorithm asks for. It
-// is zero for parameters pbeCipherFor rejects, since no key is derived for those.
-func iterationsFor(algorithm pkix.AlgorithmIdentifier) int {
+// iterationsFor returns the iteration count a password-based encryption algorithm asks for.
+// derivesKey is false for parameters pbeCipherFor rejects before it derives anything.
+func iterationsFor(algorithm pkix.AlgorithmIdentifier) (iterations int, derivesKey bool) {
 	switch {
 	case algorithm.Algorithm.Equal(oidPBEWithSHAAnd3KeyTripleDESCBC),
 		algorithm.Algorithm.Equal(oidPBEWithSHAAnd40BitRC2CBC):
 		var params pbeParams
 		if err := unmarshal(algorithm.Parameters.FullBytes, &params); err != nil {
-			return 0
+			return 0, false
 		}
-		return params.Iterations
+		return params.Iterations, true
 	case algorithm.Algorithm.Equal(oidPBES2):
 		var params pbes2Params
 		if err := unmarshal(algorithm.Parameters.FullBytes, &params); err != nil {
-			return 0
+			return 0, false
 		}
 		if !params.Kdf.Algorithm.Equal(oidPBKDF2) {
-			return 0
+			return 0, false
 		}
 		var kdfParams pbkdf2Params
 		if err := unmarshal(params.Kdf.Parameters.FullBytes, &kdfParams); err != nil {
-			return 0
+			return 0, false
 		}
-		return kdfParams.Iterations
+		return kdfParams.Iterations, true
 	default:
-		return 0
+		return 0, false
 	}
 }

@@ -111,14 +111,14 @@ func decodeKeystoreWithin(t *testing.T, limit time.Duration, pfx []byte) error {
 
 func TestDecodeRejectsExcessiveIterations(t *testing.T) {
 	tests := map[string][]byte{
-		"MAC":                            pfxWith(t, math.MaxInt64),
-		"encrypted safe":                 pfxWith(t, 1, encryptedSafe(t, pbeAlgorithm(t, math.MaxInt64))),
-		"encrypted safe using PBES2":     pfxWith(t, 1, encryptedSafe(t, pbes2Algorithm(t, math.MaxInt64))),
-		"key bag":                        pfxWith(t, 1, keyBagSafe(t, pbeAlgorithm(t, math.MaxInt64))),
-		"key bag using PBES2":            pfxWith(t, 1, keyBagSafe(t, pbes2Algorithm(t, math.MaxInt64))),
+		"MAC":                            pfxWith(t, math.MaxInt),
+		"encrypted safe":                 pfxWith(t, 1, encryptedSafe(t, pbeAlgorithm(t, math.MaxInt))),
+		"encrypted safe using PBES2":     pfxWith(t, 1, encryptedSafe(t, pbes2Algorithm(t, math.MaxInt))),
+		"key bag":                        pfxWith(t, 1, keyBagSafe(t, pbeAlgorithm(t, math.MaxInt))),
+		"key bag using PBES2":            pfxWith(t, 1, keyBagSafe(t, pbes2Algorithm(t, math.MaxInt))),
 		"key bag one over the limit":     pfxWith(t, 1, keyBagSafe(t, pbeAlgorithm(t, maxIterations))),
 		"parts adding up over the limit": pfxWith(t, 1, keyBagSafe(t, pbeAlgorithm(t, maxIterations/2), pbeAlgorithm(t, maxIterations/2))),
-		"parts overflowing the total":    pfxWith(t, 1, keyBagSafe(t, pbeAlgorithm(t, math.MaxInt64), pbeAlgorithm(t, math.MaxInt64))),
+		"parts overflowing the total":    pfxWith(t, 1, keyBagSafe(t, pbeAlgorithm(t, math.MaxInt), pbeAlgorithm(t, math.MaxInt))),
 	}
 	for name, pfx := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -131,26 +131,80 @@ func TestDecodeRejectsExcessiveIterations(t *testing.T) {
 	}
 }
 
-func TestDecodeAcceptsIterationsWithinTheLimit(t *testing.T) {
-	pfx := pfxWith(t, 2048, keyBagSafe(t, pbeAlgorithm(t, 2048), pbes2Algorithm(t, 2048)))
+func safeContentsOf(t *testing.T, pfx []byte) ([]safeBag, error) {
+	t.Helper()
+	password, err := bmpStringZeroTerminated(testPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bags, _, err := getSafeContents(pfx, password, -1)
+	return bags, err
+}
 
-	err := decodeKeystoreWithin(t, 5*time.Second, pfx)
+func TestGetSafeContentsAcceptsIterationsWithinTheLimit(t *testing.T) {
+	const macIterations = 2048
+	tests := map[string][]pkix.AlgorithmIdentifier{
+		"common counts":        {pbeAlgorithm(t, 2048), pbes2Algorithm(t, 2048)},
+		"exactly at the limit": {pbeAlgorithm(t, maxIterations-macIterations-1), pbes2Algorithm(t, 1)},
+	}
+	for name, algorithms := range tests {
+		t.Run(name, func(t *testing.T) {
+			bags, err := safeContentsOf(t, pfxWith(t, macIterations, keyBagSafe(t, algorithms...)))
 
-	if errors.Is(err, ErrTooManyIterations) {
-		t.Fatalf("unexpected error: %v", err)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(bags) != len(algorithms) {
+				t.Fatalf("expected %d bags, got %d", len(algorithms), len(bags))
+			}
+		})
+	}
+}
+
+// A key is derived, with at least one hash, even for a count of zero or less.
+func TestNonpositiveIterationCountsAreCharged(t *testing.T) {
+	const macIterations = 1
+	for _, count := range []int{0, -1, math.MinInt} {
+		fits := pfxWith(t, macIterations, keyBagSafe(t, pbeAlgorithm(t, maxIterations-macIterations-1), pbeAlgorithm(t, count)))
+		if _, err := safeContentsOf(t, fits); err != nil {
+			t.Fatalf("count %d: unexpected error: %v", count, err)
+		}
+
+		tooMany := pfxWith(t, macIterations, keyBagSafe(t, pbeAlgorithm(t, maxIterations-macIterations-1), pbeAlgorithm(t, count), pbes2Algorithm(t, count)))
+		if _, err := safeContentsOf(t, tooMany); !errors.Is(err, ErrTooManyIterations) {
+			t.Fatalf("count %d: expected ErrTooManyIterations, got: %v", count, err)
+		}
 	}
 }
 
 func TestIterationBudget(t *testing.T) {
 	budget := newIterationBudget()
 
-	if err := budget.spend(-1); err != nil {
-		t.Fatalf("negative counts derive nothing and must not be charged: %v", err)
+	for _, nonpositive := range []int{0, -1} {
+		if err := budget.spend(nonpositive); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	}
-	if err := budget.spend(maxIterations); err != nil {
+	if err := budget.spend(maxIterations - 2); err != nil {
 		t.Fatalf("the full budget must be spendable: %v", err)
 	}
-	if err := budget.spend(1); !errors.Is(err, ErrTooManyIterations) {
+	if err := budget.spend(0); !errors.Is(err, ErrTooManyIterations) {
 		t.Fatalf("expected ErrTooManyIterations, got: %v", err)
+	}
+}
+
+func TestParametersThatDeriveNoKeyAreNotCharged(t *testing.T) {
+	unsupported := pkix.AlgorithmIdentifier{Algorithm: asn1.ObjectIdentifier{1, 2, 3, 4}}
+	malformed := pkix.AlgorithmIdentifier{Algorithm: oidPBEWithSHAAnd3KeyTripleDESCBC}
+	malformed.Parameters.FullBytes = []byte{0x05, 0x00}
+
+	for name, algorithm := range map[string]pkix.AlgorithmIdentifier{"unsupported algorithm": unsupported, "malformed parameters": malformed} {
+		budget := newIterationBudget()
+		if err := budget.spendFor(algorithm); err != nil {
+			t.Fatalf("%s: unexpected error: %v", name, err)
+		}
+		if budget.remaining != maxIterations {
+			t.Fatalf("%s: charged %d iterations", name, maxIterations-budget.remaining)
+		}
 	}
 }
