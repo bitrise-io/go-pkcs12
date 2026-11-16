@@ -536,20 +536,29 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 		return nil, nil, err
 	}
 
+	budget := newIterationBudget()
+
 	if len(pfx.MacData.Mac.Algorithm.Algorithm) == 0 {
 		if !(len(password) == 2 && password[0] == 0 && password[1] == 0) {
 			return nil, nil, errors.New("pkcs12: no MAC in data")
 		}
-	} else if err := verifyMac(&pfx.MacData, pfx.AuthSafe.Content.Bytes, password); err != nil {
-		if err == ErrIncorrectPassword && len(password) == 2 && password[0] == 0 && password[1] == 0 {
-			// some implementations use an empty byte array
-			// for the empty string password try one more
-			// time with empty-empty password
-			password = nil
-			err = verifyMac(&pfx.MacData, pfx.AuthSafe.Content.Bytes, password)
-		}
-		if err != nil {
+	} else {
+		if err := budget.spend(pfx.MacData.Iterations); err != nil {
 			return nil, nil, err
+		}
+		if err := verifyMac(&pfx.MacData, pfx.AuthSafe.Content.Bytes, password); err != nil {
+			if err == ErrIncorrectPassword && len(password) == 2 && password[0] == 0 && password[1] == 0 {
+				// some implementations use an empty byte array
+				// for the empty string password try one more
+				// time with empty-empty password
+				password = nil
+				if err = budget.spend(pfx.MacData.Iterations); err == nil {
+					err = verifyMac(&pfx.MacData, pfx.AuthSafe.Content.Bytes, password)
+				}
+			}
+			if err != nil {
+				return nil, nil, err
+			}
 		}
 	}
 
@@ -578,6 +587,9 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 			if encryptedData.Version != 0 {
 				return nil, nil, NotImplementedError("only version 0 of EncryptedData is supported")
 			}
+			if err := budget.spendFor(encryptedData.EncryptedContentInfo.Algorithm()); err != nil {
+				return nil, nil, err
+			}
 			if data, err = pbDecrypt(encryptedData.EncryptedContentInfo, password); err != nil {
 				return nil, nil, err
 			}
@@ -590,6 +602,10 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 			return nil, nil, err
 		}
 		bags = append(bags, safeContents...)
+	}
+
+	if err := budget.spendForKeyBags(bags); err != nil {
+		return nil, nil, err
 	}
 
 	return bags, password, nil
