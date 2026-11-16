@@ -69,6 +69,15 @@ func keyBagSafe(t *testing.T, algorithms ...pkix.AlgorithmIdentifier) contentInf
 // pfxWith builds a PFX whose MAC is valid for testPassword unless macIterations is over the limit.
 func pfxWith(t *testing.T, macIterations int, authenticatedSafe ...contentInfo) []byte {
 	t.Helper()
+	password, err := bmpStringZeroTerminated(testPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pfxWithMACFor(t, password, macIterations, authenticatedSafe...)
+}
+
+func pfxWithMACFor(t *testing.T, password []byte, macIterations int, authenticatedSafe ...contentInfo) []byte {
+	t.Helper()
 	authenticatedSafeBytes := mustMarshal(t, authenticatedSafe)
 
 	var pfx pfxPdu
@@ -77,10 +86,6 @@ func pfxWith(t *testing.T, macIterations int, authenticatedSafe ...contentInfo) 
 	pfx.MacData.MacSalt = []byte("saltsalt")
 	pfx.MacData.Iterations = macIterations
 	if macIterations <= maxIterations {
-		password, err := bmpStringZeroTerminated(testPassword)
-		if err != nil {
-			t.Fatal(err)
-		}
 		if err := computeMac(&pfx.MacData, authenticatedSafeBytes, password); err != nil {
 			t.Fatal(err)
 		}
@@ -174,6 +179,26 @@ func TestNonpositiveIterationCountsAreCharged(t *testing.T) {
 		if _, err := safeContentsOf(t, tooMany); !errors.Is(err, ErrTooManyIterations) {
 			t.Fatalf("count %d: expected ErrTooManyIterations, got: %v", count, err)
 		}
+	}
+}
+
+// An empty password is tried in two encodings, and each attempt derives a MAC key.
+func TestBothMACAttemptsForAnEmptyPasswordAreCharged(t *testing.T) {
+	emptyPassword, err := bmpStringZeroTerminated("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	safe := keyBagSafe(t, pbeAlgorithm(t, 1))
+
+	// These MACs are only valid for the second encoding, a nil password.
+	fits := pfxWithMACFor(t, nil, 2048, safe)
+	if _, _, err := getSafeContents(fits, emptyPassword, -1); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	tooMany := pfxWithMACFor(t, nil, maxIterations/2+1, safe)
+	if _, _, err := getSafeContents(tooMany, emptyPassword, -1); !errors.Is(err, ErrTooManyIterations) {
+		t.Fatalf("expected ErrTooManyIterations, got: %v", err)
 	}
 }
 
